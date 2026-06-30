@@ -689,6 +689,17 @@ button{cursor:pointer}
             </div>
           </div>
 
+          <!-- ── HISTÓRICO DE IMPORTAÇÕES ── -->
+          <div class="scard" style="margin-bottom:12px">
+            <div class="scard-head" style="cursor:pointer" onclick="toggleCartHistory()">
+              <span class="scard-title">📊 Histórico de Importações do Mês</span>
+              <span id="cart-history-toggle" style="font-size:12px;color:var(--text2)">▼ ver</span>
+            </div>
+            <div id="cart-history-wrap" style="display:none;padding:8px 16px 12px">
+              <div id="cart-history-body"><div style="color:var(--text2);font-size:12px;padding:8px">Carregando...</div></div>
+            </div>
+          </div>
+
           <div class="scard">
             <div class="scard-head">
               <span class="scard-title">🛒 Lista de carrinhos</span>
@@ -3275,10 +3286,13 @@ async function saveCartImport() {
   const rows = _cartImportRows.filter(r=>r.phone && r.phone.trim());
   if(!rows.length){ toast('Nenhuma linha válida','warn'); return; }
 
+  const now = new Date().toISOString(); // timestamp da importação
+
   // Usa o código Shopify como cart_id, ou fallback email+data
   const toInsert = rows.map((r,i)=>({
     cart_id:      r.cart_code || `shopify-${(r.email||i).replace(/[^a-z0-9]/g,'')}-${r.abandoned_at}`,
     abandoned_at: r.abandoned_at || yesterday(),
+    imported_at:  now,
     name:         r.name,
     email:        r.email,
     phone:        r.phone,
@@ -3293,8 +3307,42 @@ async function saveCartImport() {
   if(error){ toast('Erro: '+error.message,'warn'); return; }
   toast(`${toInsert.length} carrinhos salvos${semTel>0?` · ${semTel} sem telefone ignorados`:''}`, 'success');
   cancelCartImport();
-  // Mantém a data que o usuário selecionou e recarrega
   loadCarrinho();
+  loadCartHistory(); // atualiza histórico
+}
+
+async function loadCartHistory() {
+  const el = $('cart-history-body');
+  if(!el) return;
+  // pega o mês atual
+  const now = new Date();
+  const from = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  const to   = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-31`;
+  const {data} = await db.from('carts').select('imported_at,motivo,phone')
+    .gte('imported_at', from).lte('imported_at', to+'T23:59:59').order('imported_at',{ascending:false});
+  if(!data||!data.length){ el.innerHTML='<div style="color:var(--text2);font-size:12px;padding:8px">Nenhuma importação este mês</div>'; return; }
+
+  // agrupa por dia de importação
+  const byDay = {};
+  data.forEach(c=>{
+    const day = (c.imported_at||'').split('T')[0];
+    if(!byDay[day]) byDay[day]={total:0,motivos:{}};
+    byDay[day].total++;
+    const m = c.motivo||'Sem Retorno';
+    byDay[day].motivos[m]=(byDay[day].motivos[m]||0)+1;
+  });
+
+  el.innerHTML = Object.entries(byDay).map(([day,d])=>{
+    const [y,m,dd]=day.split('-');
+    const mots = Object.entries(d.motivos).map(([k,v])=>`<span style="font-size:10px;background:var(--bg);padding:2px 6px;border-radius:10px;color:var(--text2)">${k}: ${v}</span>`).join(' ');
+    return `<div style="border-bottom:1px solid var(--border);padding:8px 0">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;font-weight:700;color:var(--text)">${dd}/${m}/${y}</span>
+        <span style="font-size:13px;font-weight:800;color:#7c3aed">${d.total} carrinhos</span>
+      </div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">${mots}</div>
+    </div>`;
+  }).join('');
 }
 
 // ── GERAR DASHBOARD HTML ──────────────────────────────────
@@ -4803,6 +4851,16 @@ function cartMotivoBadge(motivo) {
   const m = CART_MOTIVOS[motivo] || { cls:'cm-sem-retorno' };
   const lbl = motivo === 'Comprou' ? 'Comprou ✅' : motivo;
   return `<span class="cart-motivo-badge ${m.cls}">${lbl}</span>`;
+}
+
+function toggleCartHistory() {
+  const wrap = $('cart-history-wrap');
+  const tog  = $('cart-history-toggle');
+  if(!wrap) return;
+  const open = wrap.style.display === 'block';
+  wrap.style.display = open ? 'none' : 'block';
+  if(tog) tog.textContent = open ? '▼ ver' : '▲ fechar';
+  if(!open) loadCartHistory();
 }
 
 async function loadCarrinho() {
