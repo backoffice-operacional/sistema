@@ -2010,7 +2010,7 @@ async function refreshGustavo() {
   const ehComm = ehBrl * 0.03;
   const totalComm = mboComm + ehComm;
 
-  const motivoRows = ['1x1','recuperação','reversão','carrinho'].map(k => {
+  const motivoRows = ['recuperação','outros'].map(k => {
     const d = mboByMotivo[k];
     if(!d || d.qty===0) return '';
     return `
