@@ -4782,8 +4782,9 @@ async function confirmExcelImport() {
   btn.disabled = true;
   btn.textContent = 'Verificando duplicatas...';
 
-  // Load existing contacts to check duplicates
-  let q = db.from('contacts').select('email,phone,country');
+  // Load existing contacts to check duplicates — apenas no mês atual
+  const {from: dupFrom, to: dupTo} = getMonthRange(contactsMonthOffset);
+  let q = db.from('contacts').select('email,phone,country').gte('date', dupFrom).lte('date', dupTo);
   if(profile.role !== 'admin') q = q.eq('user_id', user.id);
   const {data:existing} = await q;
 
