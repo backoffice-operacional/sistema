@@ -4807,9 +4807,11 @@ async function confirmExcelImport() {
   });
 
   btn.textContent = 'Importando...';
+  // Força a data para hoje — contatos importados pertencem ao mês atual
+  const importDate = today();
   let errors = 0;
   if(toInsert.length) {
-    const payload = toInsert.map(r=>({...r, user_id: user.id}));
+    const payload = toInsert.map(r=>({...r, user_id: user.id, date: importDate}));
     for(let i=0; i<payload.length; i+=100) {
       const {error} = await db.from('contacts').insert(payload.slice(i,i+100));
       if(error){ console.error('import batch error:', error); errors++; }
