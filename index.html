@@ -3305,6 +3305,15 @@ async function saveCartImport() {
   if(!toInsert.length){ toast(`Nenhum carrinho com telefone para salvar (${semTel} ignorados)`, 'warn'); return; }
   const {error} = await db.from('carts').upsert(toInsert, {onConflict:'cart_id'});
   if(error){ toast('Erro: '+error.message,'warn'); return; }
+
+  // Registra no log de importações (fonte oficial do fechamento)
+  await db.from('cart_import_logs').insert({
+    user_id:       user.id,
+    import_date:   new Date().toISOString().split('T')[0],
+    qty_with_phone: toInsert.length,
+    qty_total:      _cartImportRows.length
+  });
+
   toast(`${toInsert.length} carrinhos salvos${semTel>0?` · ${semTel} sem telefone ignorados`:''}`, 'success');
   cancelCartImport();
   loadCarrinho();
@@ -3959,9 +3968,10 @@ async function generatePeriodClosing() {
     cm++; if(cm>12){cm=1;cy++;}
   }
 
-  const [sales, cartsRes, ...ehArr] = await Promise.all([
+  const [sales, cartsRes, cartLogsRes, ...ehArr] = await Promise.all([
     fetchSales(from, to),
     db.from('carts').select('motivo,phone,status').gte('imported_at',from).lte('imported_at',to+'T23:59:59'),
+    db.from('cart_import_logs').select('qty_with_phone,import_date').gte('import_date',from).lte('import_date',to),
     ...ehMonths.map(([m,y]) => window.ehFirebaseFetchMonth ? window.ehFirebaseFetchMonth(m,y) : Promise.resolve([]))
   ]);
 
@@ -4029,10 +4039,12 @@ async function generatePeriodClosing() {
   const cartSalesBrl      = cartSales.reduce((a,s)=>a+Number(s.value_brl||0),0);
   const cartSalesUsd      = cartSales.reduce((a,s)=>a+Number(s.value_usd||0),0);
 
-  // 2) Carrinhos importados na tabela carts (status/motivo dos contatos)
+  // 2) Carrinhos importados — total vem do log oficial de importações
   const CART_MOTIVO_ORDER = ['Comprou','Sem Retorno','Achou Caro','Crédito','Dúvidas','Queria Remédio/Bebida/Carne','País que não enviamos'];
   const carts = cartsRes.data||[];
-  const cartsTotal = carts.length;
+  const cartLogs = cartLogsRes.data||[];
+  // "Entrou" = soma das importações registradas no log (fonte exata)
+  const cartsTotal = cartLogs.reduce((a,r)=>a+(r.qty_with_phone||0),0);
   const cartsByMot = {};
   carts.forEach(c=>{ const m=c.motivo||'Sem Retorno'; cartsByMot[m]=(cartsByMot[m]||0)+1; });
   const cartsComprou    = cartsByMot['Comprou']||0;
