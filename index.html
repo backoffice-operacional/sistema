@@ -4045,8 +4045,11 @@ async function generatePeriodClosing() {
   const cartLogs = cartLogsRes.data||[];
   // "Entrou" = soma das importações registradas no log (fonte exata)
   const cartsTotal = cartLogs.reduce((a,r)=>a+(r.qty_with_phone||0),0);
+  // Motivos: filtra apenas carrinhos cujo dia de importação está no log
+  const validImportDates = new Set(cartLogs.map(l=>l.import_date));
+  const validCarts = carts.filter(c => validImportDates.has((c.imported_at||'').split('T')[0]));
   const cartsByMot = {};
-  carts.forEach(c=>{ const m=c.motivo||'Sem Retorno'; cartsByMot[m]=(cartsByMot[m]||0)+1; });
+  validCarts.forEach(c=>{ const m=c.motivo||'Sem Retorno'; cartsByMot[m]=(cartsByMot[m]||0)+1; });
   const cartsComprou    = cartsByMot['Comprou']||0;
   const cartsNaoComprou = cartsTotal - cartsComprou;
 
