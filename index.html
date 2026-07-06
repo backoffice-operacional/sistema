@@ -1232,6 +1232,7 @@ const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 // ── Estado da aplicação ───────────────────────────────────
 let user = null, profile = null, modules = [], settings = {};
 let salesCache = [], allModules = [];
+let _salesDateCache = null; // {fr, to, data} — cache para busca por data
 let currentFilter = { panel: 'leticia', type: 'month' };
 let weekOffset = 0;
 let dashMonthOffset = 0;
@@ -2259,7 +2260,10 @@ async function loadSalesTable() {
     <span style="color:var(--text2)">Qtd: <strong>${filtered.length}</strong></span>
     <span style="color:${color}">Fat: <strong>${brl(totalBrl)}</strong></span>`;
   const title = $('sales-tab-title');
-  if(title) title.textContent = SALES_TAB_LABELS[company] + ' — últimos 30 dias';
+  const { from: sfrom, to: sto } = getMonthRange(dashMonthOffset);
+  const [sy,sm] = sfrom.split('-');
+  const mesLabel = new Date(Number(sy), Number(sm)-1, 1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  if(title) title.textContent = SALES_TAB_LABELS[company] + ' — ' + mesLabel;
   renderSalesTable(filtered);
   if(profile.role!=='admin') $('btn-nova-venda').style.display='';
 }
@@ -2282,14 +2286,31 @@ function renderSalesTable(data) {
     </tr>`).join('');
 }
 
-function filterSalesTable() {
+async function filterSalesTable() {
   const cl=$('search-client').value.toLowerCase();
   const or=$('search-order').value.toLowerCase();
   const fr=$('search-from').value;
   const to=$('search-to').value;
   const isAdminF = profile.role==='admin';
+  const userId = isAdminF ? null : user.id;
   const userModIdsF = isAdminF ? null : allModules.filter(m=>m.owner_role===profile.role && m.company===salesActiveTab).map(m=>m.id);
-  let data = salesCache.filter(s=>{
+
+  let source;
+  if(fr && to) {
+    // Busca do banco se o intervalo for diferente do cache atual
+    if(_salesDateCache && _salesDateCache.fr===fr && _salesDateCache.to===to) {
+      source = _salesDateCache.data;
+    } else {
+      $('sales-tbody').innerHTML='<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text2)">Buscando...</td></tr>';
+      source = await fetchSales(fr, to, userId);
+      _salesDateCache = {fr, to, data: source};
+    }
+  } else {
+    _salesDateCache = null;
+    source = salesCache;
+  }
+
+  let data = source.filter(s=>{
     if(s.modules?.company !== salesActiveTab) return false;
     if(!isAdminF && userModIdsF && !userModIdsF.includes(s.module_id)) return false;
     if(cl && !s.client.toLowerCase().includes(cl)) return false;
@@ -2303,6 +2324,7 @@ function filterSalesTable() {
 
 function clearSalesFilter() {
   ['search-client','search-order','search-from','search-to'].forEach(id=>$(id).value='');
+  _salesDateCache = null;
   renderSalesTable(salesCache.filter(s=>s.modules?.company===salesActiveTab));
 }
 
