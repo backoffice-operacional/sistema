@@ -2328,14 +2328,29 @@ function clearSalesFilter() {
   renderSalesTable(salesCache.filter(s=>s.modules?.company===salesActiveTab));
 }
 
-function downloadSalesCSV() {
+async function downloadSalesCSV() {
   const vendedorNome = {isabella:'Isabella', tenile:'Tenile', gustavo:'Gustavo', admin:'Admin'};
-  // pega os dados visíveis na tabela atual (respeitando filtros aplicados)
   const cl  = $('search-client').value.toLowerCase();
   const or  = $('search-order').value.toLowerCase();
   const fr  = $('search-from').value;
   const to  = $('search-to').value;
-  const data = salesCache.filter(s=>{
+
+  // Se datas definidas, usa o cache de busca (mesmo da tabela) ou busca novo
+  let source;
+  if(fr && to) {
+    if(_salesDateCache && _salesDateCache.fr===fr && _salesDateCache.to===to) {
+      source = _salesDateCache.data;
+    } else {
+      toast('Buscando dados...','success');
+      const isAdmin = profile.role==='admin';
+      source = await fetchSales(fr, to, isAdmin ? null : user.id);
+      _salesDateCache = {fr, to, data: source};
+    }
+  } else {
+    source = salesCache;
+  }
+
+  const data = source.filter(s=>{
     if(s.modules?.company !== salesActiveTab) return false;
     if(cl && !s.client.toLowerCase().includes(cl)) return false;
     if(or && !(s.order_id||'').toLowerCase().includes(or)) return false;
