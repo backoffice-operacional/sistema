@@ -2366,16 +2366,15 @@ function downloadSalesCSV() {
   toast(`${data.length} registros exportados!`, 'success');
 }
 
-function downloadAllSalesCSV() {
+async function downloadAllSalesCSV() {
   const vendedorNome = {isabella:'Isabella', tenile:'Tenile', gustavo:'Gustavo', admin:'Admin'};
   const fr = $('search-from').value;
   const to = $('search-to').value;
-  // Todas as empresas, respeitando filtro de data se houver
-  const data = salesCache.filter(s=>{
-    if(fr && s.date < fr) return false;
-    if(to && s.date > to) return false;
-    return true;
-  });
+  if(!fr || !to){ toast('Selecione as datas De e Até antes de baixar','warn'); return; }
+
+  toast('Buscando dados...','success');
+  // Busca direto do banco com o período exato selecionado
+  const data = await fetchSales(fr, to);
   if(!data.length){ toast('Nenhum dado para exportar','warn'); return; }
   const esc = v => `"${String(v||'').replace(/"/g,'""')}"`;
 
@@ -2395,20 +2394,21 @@ function downloadAllSalesCSV() {
     ['TOTAL','',data.length,`R$ ${data.reduce((a,s)=>a+Number(s.value_brl||0),0).toFixed(2)}`,'','',''],
     ['','','','','','',''],['DETALHAMENTO','','','','','',''],
   ];
-  const header = ['Data','Nome','Pedido','Empresa','Módulo','Valor Orig.','Vendedor'];
+  const header = ['Data','Nome','Pedido','Empresa','Módulo','Valor Orig.','Vendedor','Motivo'];
   const rows = data.map(s=>[
     esc(s.date), esc(s.client), esc(s.order_id||''),
     esc(s.modules?.company||''), esc(s.modules?.name||''),
     esc(s.modules?.currency==='USD'?`$ ${Number(s.value_original).toFixed(2)}`:`R$ ${Number(s.value_original).toFixed(2)}`),
     esc(vendedorNome[s.modules?.owner_role]||s.modules?.owner_role||''),
+    esc(s.motivo||''),
   ].join(','));
   const csv = [...summaryRows.map(r=>r.map(c=>esc(c)).join(',')), header.join(','), ...rows].join('\n');
   const blob = new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href=url; a.download=`vendas_todas_${today()}.csv`; a.click();
+  a.href=url; a.download=`vendas_${fr}_a_${to}.csv`; a.click();
   URL.revokeObjectURL(url);
-  toast(`${data.length} registros exportados (todas as empresas)!`,'success');
+  toast(`${data.length} registros exportados!`,'success');
 }
 
 // ── SALE MODAL ────────────────────────────────────────────
