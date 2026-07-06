@@ -524,7 +524,8 @@ button{cursor:pointer}
                   <input type="date" id="search-from" oninput="filterSalesTable()">
                   <input type="date" id="search-to" oninput="filterSalesTable()">
                   <button class="btn-secondary" onclick="clearSalesFilter()">Limpar</button>
-                  <button class="btn-secondary" onclick="downloadSalesCSV()" style="background:#16a34a;color:#fff;border-color:#16a34a">⬇ Baixar CSV</button>
+                  <button class="btn-secondary" onclick="downloadSalesCSV()" style="background:#16a34a;color:#fff;border-color:#16a34a">⬇ Baixar aba</button>
+                  <button class="btn-secondary" onclick="downloadAllSalesCSV()" style="background:#0277bd;color:#fff;border-color:#0277bd">⬇ Baixar tudo</button>
                 </div>
               </div>
               <div class="table-wrap">
@@ -2239,7 +2240,9 @@ async function loadSalesTable() {
     ? null
     : allModules.filter(m => m.owner_role === profile.role && m.company === company).map(m => m.id);
 
-  salesCache = await fetchSales(nDaysAgo(30), today(), userId);
+  // Carrega o mês atual completo (não só 30 dias) para bater com o dashboard
+  const { from: salesFrom, to: salesTo } = getMonthRange(dashMonthOffset);
+  salesCache = await fetchSales(salesFrom, salesTo, userId);
 
   // Filtra: empresa correta E (se não-admin) módulo pertence ao usuário
   const filtered = salesCache.filter(s => {
@@ -2361,6 +2364,51 @@ function downloadSalesCSV() {
   a.href = url; a.download = `vendas_${empresa}_${today()}.csv`; a.click();
   URL.revokeObjectURL(url);
   toast(`${data.length} registros exportados!`, 'success');
+}
+
+function downloadAllSalesCSV() {
+  const vendedorNome = {isabella:'Isabella', tenile:'Tenile', gustavo:'Gustavo', admin:'Admin'};
+  const fr = $('search-from').value;
+  const to = $('search-to').value;
+  // Todas as empresas, respeitando filtro de data se houver
+  const data = salesCache.filter(s=>{
+    if(fr && s.date < fr) return false;
+    if(to && s.date > to) return false;
+    return true;
+  });
+  if(!data.length){ toast('Nenhum dado para exportar','warn'); return; }
+  const esc = v => `"${String(v||'').replace(/"/g,'""')}"`;
+
+  // Resumo por empresa e motivo
+  const resumo = {};
+  data.forEach(s=>{
+    const emp = s.modules?.company||'Outros';
+    const k   = normCode(s.motivo)||'outros';
+    const key = `${emp}|${k}`;
+    if(!resumo[key]) resumo[key]={empresa:emp,motivo:k,qty:0,brl:0};
+    resumo[key].qty++; resumo[key].brl+=Number(s.value_brl||0);
+  });
+  const summaryRows = [
+    ['RESUMO GERAL','','','','','',''],
+    ['Empresa','Motivo','Qtd','Faturamento BRL','','',''],
+    ...Object.values(resumo).map(v=>[v.empresa, v.motivo, v.qty, `R$ ${v.brl.toFixed(2)}`,'','','']),
+    ['TOTAL','',data.length,`R$ ${data.reduce((a,s)=>a+Number(s.value_brl||0),0).toFixed(2)}`,'','',''],
+    ['','','','','','',''],['DETALHAMENTO','','','','','',''],
+  ];
+  const header = ['Data','Nome','Pedido','Empresa','Módulo','Valor Orig.','Vendedor'];
+  const rows = data.map(s=>[
+    esc(s.date), esc(s.client), esc(s.order_id||''),
+    esc(s.modules?.company||''), esc(s.modules?.name||''),
+    esc(s.modules?.currency==='USD'?`$ ${Number(s.value_original).toFixed(2)}`:`R$ ${Number(s.value_original).toFixed(2)}`),
+    esc(vendedorNome[s.modules?.owner_role]||s.modules?.owner_role||''),
+  ].join(','));
+  const csv = [...summaryRows.map(r=>r.map(c=>esc(c)).join(',')), header.join(','), ...rows].join('\n');
+  const blob = new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=`vendas_todas_${today()}.csv`; a.click();
+  URL.revokeObjectURL(url);
+  toast(`${data.length} registros exportados (todas as empresas)!`,'success');
 }
 
 // ── SALE MODAL ────────────────────────────────────────────
