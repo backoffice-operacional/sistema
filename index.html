@@ -494,7 +494,12 @@ button{cursor:pointer}
         <!-- ── VENDAS (tabela + modal) ── -->
         <div class="panel" id="panel-sales">
           <div class="ph"><div><div class="ph-title">Vendas</div><div class="ph-sub" id="sales-sub">Selecione uma empresa</div></div>
-            <button class="btn-primary" id="btn-nova-venda" onclick="openSaleModal()" style="display:none">+ Nova Venda</button>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="btn-secondary" style="padding:6px 10px" onclick="salesMonthNav(-1)">&#8249;</button>
+              <span id="sales-month-label" style="font-size:12px;font-weight:600;color:var(--text2);min-width:100px;text-align:center"></span>
+              <button class="btn-secondary" style="padding:6px 10px" onclick="salesMonthNav(1)">&#8250;</button>
+              <button class="btn-primary" id="btn-nova-venda" onclick="openSaleModal()" style="display:none">+ Nova Venda</button>
+            </div>
           </div>
 
           <!-- Tabs de empresa -->
@@ -976,6 +981,18 @@ button{cursor:pointer}
             <option>Wise</option>
             <option>Fatura no E-mail</option>
             <option>Link Checkout</option>
+          </select>
+        </div>
+      </div>
+      <div class="frow" id="mbo-fields" style="display:none">
+        <div class="fg"><label>País</label><input type="text" id="f-country" placeholder="Ex: Brasil, Portugal..."></div>
+        <div class="fg"><label>Shopify</label>
+          <select id="f-shopify">
+            <option value="">Selecione...</option>
+            <option value="PT">PT</option>
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="C">C</option>
           </select>
         </div>
       </div>
@@ -2163,6 +2180,7 @@ async function loadGusCommissions() {
 // ── SALES TABS ─────────────────────────────────────────────
 let salesActiveTab = 'MBO';
 let salesEhMonthOffset = 0;
+let salesMonthOffset = 0;
 const SALES_TAB_COLORS = {EH:'var(--eh)', MBO:'var(--mb)', LouBR:'var(--lb)'};
 const SALES_TAB_LABELS = {EH:'Envie Hoje', MBO:'Meu Brasil Online', LouBR:'Lou Brasil Alimentos'};
 
@@ -2241,9 +2259,14 @@ async function loadSalesTable() {
     ? null
     : allModules.filter(m => m.owner_role === profile.role && m.company === company).map(m => m.id);
 
-  // Carrega o mês atual completo (não só 30 dias) para bater com o dashboard
-  const { from: salesFrom, to: salesTo } = getMonthRange(dashMonthOffset);
+  // Carrega o mês selecionado no painel de Vendas
+  const { from: salesFrom, to: salesTo, label: salesLabel } = getMonthRange(salesMonthOffset);
   salesCache = await fetchSales(salesFrom, salesTo, userId);
+  _salesDateCache = null; // reset cache de filtro ao trocar mês
+  // Preenche filtros de data e label do mês
+  $('search-from').value = salesFrom;
+  $('search-to').value = salesTo;
+  const lbl = $('sales-month-label'); if(lbl) lbl.textContent = salesLabel;
 
   // Filtra: empresa correta E (se não-admin) módulo pertence ao usuário
   const filtered = salesCache.filter(s => {
@@ -2323,9 +2346,20 @@ async function filterSalesTable() {
 }
 
 function clearSalesFilter() {
-  ['search-client','search-order','search-from','search-to'].forEach(id=>$(id).value='');
+  ['search-client','search-order'].forEach(id=>$(id).value='');
+  // Restaura as datas do mês atual do painel
+  const { from: sf, to: st } = getMonthRange(salesMonthOffset);
+  $('search-from').value = sf;
+  $('search-to').value = st;
   _salesDateCache = null;
   renderSalesTable(salesCache.filter(s=>s.modules?.company===salesActiveTab));
+}
+
+function salesMonthNav(dir) {
+  salesMonthOffset += dir;
+  // Bloqueia ir para mês futuro
+  if(salesMonthOffset > 0) { salesMonthOffset = 0; return; }
+  loadSalesTable();
 }
 
 async function downloadSalesCSV() {
@@ -2461,9 +2495,10 @@ function openSaleModal() {
   editingId = null;
   $('modal-title').textContent = 'Nova Venda';
   $('edit-sale-id').value = '';
-  ['f-module','f-client','f-order','f-value','f-motivo','f-payment','f-contact','f-obs'].forEach(id=>{
+  ['f-module','f-client','f-order','f-value','f-motivo','f-payment','f-contact','f-obs','f-country','f-shopify'].forEach(id=>{
     const el=$(id); if(el) el.value='';
   });
+  $('mbo-fields').style.display = 'none';
   $('f-date').value = today();
   $('f-proof').checked = false;
   $('conv-preview').style.display='none';
@@ -2488,7 +2523,14 @@ function openSaleModal() {
 }
 
 async function openEditSale(id) {
-  const s = salesCache.find(x=>x.id===id);
+  // Busca primeiro no cache principal, depois no cache de data filtrada
+  let s = salesCache.find(x=>x.id===id);
+  if(!s && _salesDateCache) s = _salesDateCache.data.find(x=>x.id===id);
+  // Se ainda não achou, busca direto do banco
+  if(!s) {
+    const {data} = await db.from('sales').select('*, modules(name,company,currency,commission_rate,owner_role)').eq('id',id).single();
+    s = data;
+  }
   if(!s) return;
   editingId = id;
   $('modal-title').textContent = 'Editar Venda';
@@ -2502,6 +2544,8 @@ async function openEditSale(id) {
   $('f-payment').value = s.payment_method||'';
   $('f-contact').value = s.contact||'';
   $('f-obs').value = s.observation||'';
+  $('f-country').value = s.country||'';
+  $('f-shopify').value = s.shopify_plan||'';
   $('f-proof').checked = !!s.proof_attached;
   onModuleChange();
   updateConversion();
@@ -2520,11 +2564,15 @@ function onModuleChange() {
   const modName = (opt?.text||'').toLowerCase();
   const motivoSel = $('f-motivo');
   if(modName.includes('revers')) {
-    // garante que a opção reversão existe no select
     if([...motivoSel.options].some(o=>o.value==='reversão')) motivoSel.value = 'reversão';
   } else if(modName === 'venda') {
     if([...motivoSel.options].some(o=>o.value==='venda')) motivoSel.value = 'venda';
   }
+  // Mostrar campos País + Shopify só para módulos MBO
+  const modId = sel.value;
+  const mod = allModules.find(m=>m.id===modId);
+  const isMBO = mod?.company === 'MBO';
+  $('mbo-fields').style.display = isMBO ? '' : 'none';
 }
 
 function updateConversion() {
@@ -2592,6 +2640,8 @@ async function saveSale() {
     payment_method: $('f-payment').value||null,
     contact: $('f-contact').value||null,
     observation: $('f-obs').value||null,
+    country: $('f-country').value.trim()||null,
+    shopify_plan: $('f-shopify').value||null,
     proof_attached: $('f-proof').checked
   };
 
