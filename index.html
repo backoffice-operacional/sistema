@@ -2414,14 +2414,17 @@ async function downloadSalesCSV() {
   ];
 
   // ── Linhas individuais ────────────────────────────────────
-  const header = ['Data','Nome','Pedido','Módulo','Valor Orig.','Vendedor'];
+  const header = ['Data','Nome','Pedido','Módulo','Valor Orig.','BRL','Vendedor','País','Shopify'];
   const rows = data.map(s=>[
     esc(s.date),
     esc(s.client),
     esc(s.order_id||''),
     esc(s.modules?.name||''),
     esc(s.modules?.currency==='USD' ? `$ ${Number(s.value_original).toFixed(2)}` : `R$ ${Number(s.value_original).toFixed(2)}`),
+    esc(`R$ ${Number(s.value_brl||0).toFixed(2)}`),
     esc(vendedorNome[s.modules?.owner_role] || s.modules?.owner_role || ''),
+    esc(s.country||''),
+    esc(s.shopify_plan||''),
   ].join(','));
   const csv = [
     ...summaryRows.map(r=>r.map(c=>esc(c)).join(',')),
@@ -2465,13 +2468,16 @@ async function downloadAllSalesCSV() {
     ['TOTAL','',data.length,`R$ ${data.reduce((a,s)=>a+Number(s.value_brl||0),0).toFixed(2)}`,'','',''],
     ['','','','','','',''],['DETALHAMENTO','','','','','',''],
   ];
-  const header = ['Data','Nome','Pedido','Empresa','Módulo','Valor Orig.','Vendedor','Motivo'];
+  const header = ['Data','Nome','Pedido','Empresa','Módulo','Valor Orig.','BRL','Vendedor','Motivo','País','Shopify'];
   const rows = data.map(s=>[
     esc(s.date), esc(s.client), esc(s.order_id||''),
     esc(s.modules?.company||''), esc(s.modules?.name||''),
     esc(s.modules?.currency==='USD'?`$ ${Number(s.value_original).toFixed(2)}`:`R$ ${Number(s.value_original).toFixed(2)}`),
+    esc(`R$ ${Number(s.value_brl||0).toFixed(2)}`),
     esc(vendedorNome[s.modules?.owner_role]||s.modules?.owner_role||''),
     esc(s.motivo||''),
+    esc(s.country||''),
+    esc(s.shopify_plan||''),
   ].join(','));
   const csv = [...summaryRows.map(r=>r.map(c=>esc(c)).join(',')), header.join(','), ...rows].join('\n');
   const blob = new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
